@@ -70,3 +70,138 @@ body{background:var(--background);overflow-x:hidden}.section{border:1px solid va
 @media(max-width:900px){.night .hero-top{padding-right:96px}.night .hero-ambient::before{right:28px;top:28px;width:72px;height:72px}}
 @media(max-width:560px){.night .hero-top{padding-right:0}.night .hero-ambient::before{display:block;right:-34px;top:82px;width:124px;height:124px;opacity:.72;box-shadow:0 0 0 1px rgba(205,226,234,.16),0 0 22px 4px rgba(124,174,192,.1),0 0 52px 16px rgba(67,125,148,.07)}}
 @media(max-width:380px){.night .hero-ambient::before{right:-36px;top:100px;width:96px;height:96px;opacity:.62}}
+
+/* Light theme clarity: separate the canvas, panels, and nested information. */
+:root{
+  --bg:#eef2f0;
+  --surface:#ffffff;
+  --muted:#e8efec;
+  --text:#102522;
+  --sub:#526662;
+  --line:#d5dfdb;
+  --accent:#236b63;
+  --accent-soft:#dcefeb;
+  --sun:#e39a3b;
+  --surface-secondary:#f4f7f5;
+  --border-subtle:#dce5e1;
+  --text-tertiary:#687b77;
+}
+
+html[data-theme="light"] body{
+  background:
+    radial-gradient(circle at 12% 0%,rgba(74,143,132,.08),transparent 30rem),
+    var(--bg);
+}
+
+html[data-theme="light"] header{
+  background:rgba(255,255,255,.88);
+  border-bottom-color:#d9e2de;
+  box-shadow:0 1px 0 rgba(16,37,34,.03),0 8px 28px rgba(16,37,34,.035);
+}
+
+html[data-theme="light"] .search,
+html[data-theme="light"] .icon-button,
+html[data-theme="light"] .segmented{
+  border-color:#cdd9d4;
+  box-shadow:0 1px 2px rgba(16,37,34,.04);
+}
+
+html[data-theme="light"] .section{
+  border-color:#d6e1dc!important;
+  box-shadow:0 8px 24px rgba(23,53,48,.055)!important;
+}
+
+html[data-theme="light"] .hero:not(.night){
+  background:linear-gradient(128deg,#cfeae4 0%,#e6f0df 52%,#f5d7a8 100%);
+  border:1px solid rgba(50,105,95,.14);
+  box-shadow:0 12px 32px rgba(35,79,71,.09),inset 0 1px rgba(255,255,255,.65);
+}
+
+html[data-theme="light"] .hero.night{
+  border:1px solid rgba(118,166,174,.18);
+  box-shadow:0 12px 32px rgba(18,45,49,.14),inset 0 1px rgba(216,238,240,.08);
+}
+
+html[data-theme="light"] .hero:not(.night) .hero-glance{
+  background:rgba(255,255,255,.68);
+  border-color:rgba(50,90,82,.18);
+  box-shadow:0 14px 34px rgba(35,73,66,.10);
+}
+
+html[data-theme="light"] .glance-label,
+html[data-theme="light"] .glance-item>span,
+html[data-theme="light"] .local-date,
+html[data-theme="light"] .updated{
+  opacity:.78;
+}
+
+html[data-theme="light"] .details .detail-card{
+  background:var(--surface)!important;
+  border:1px solid #d6e1dc!important;
+  box-shadow:0 8px 24px rgba(23,53,48,.055)!important;
+}
+
+html[data-theme="light"] .details .detail-card:hover{
+  background:#ffffff!important;
+  border-color:color-mix(in srgb,var(--detail-color) 38%,#d3dfda)!important;
+  box-shadow:0 10px 24px rgba(22,52,47,.09)!important;
+}
+
+html[data-theme="light"] .day-row{
+  border-color:#dce5e1;
+}
+
+html[data-theme="light"] .day-row:hover{
+  background:#f3f8f6;
+}
+
+html[data-theme="light"] .hourly .hour.now{
+  background:#d8ece7;
+  box-shadow:inset 0 0 0 1px #c2ded7;
+}
+
+html[data-theme="light"] footer{
+  border-top-color:#d3ded9;
+  color:#5a6d68;
+}
+
+@media(min-width:901px){
+  .content-grid{grid-template-columns:minmax(0,1.65fr) minmax(360px,.78fr);align-items:start}
+  .content-grid aside{position:sticky;top:92px}
+}
+
+@media(max-width:900px){
+  html[data-theme="light"] .section{box-shadow:0 6px 20px rgba(23,53,48,.05)!important}
+}
+
+/* Metric cards use the same elevation level as the forecast and sun panels. */
+html[data-theme="dark"]{
+  --surface-secondary:#17201e;
+  --border-subtle:#2d3936;
+}
+
+html[data-theme="dark"] .details .detail-card{
+  background:var(--surface)!important;
+  border:1px solid var(--border-subtle)!important;
+  box-shadow:0 8px 24px rgba(0,0,0,.16)!important;
+}
+
+html[data-theme="dark"] .details .detail-card:hover{
+  background:color-mix(in srgb,var(--surface) 92%,var(--detail-color))!important;
+  border-color:color-mix(in srgb,var(--detail-color) 34%,var(--border-subtle))!important;
+  box-shadow:0 12px 28px rgba(0,0,0,.22)!important;
+}
+
+html[data-theme="dark"] .details .detail-card dt,
+html[data-theme="dark"] .details .detail-card p,
+html[data-theme="dark"] .details .detail-unit{
+  color:#aebbb7;
+}
+
+html[data-theme="dark"] .detail-meter{
+  background:color-mix(in srgb,var(--detail-color) 12%,var(--muted));
+}
+
+html[data-theme="dark"] .detail-card-mark{
+  opacity:.16;
+}

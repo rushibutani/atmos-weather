@@ -337,9 +337,9 @@ export function WeatherApp() {
               <span>{locating ? "Locating…" : "Use location"}</span>
             </button>
             <div className="segmented" role="group" aria-label="Temperature unit">
-              <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-label="Use Celsius" aria-pressed={unit === "c"}>°C</button>
+              <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-label="Use Celsius" aria-pressed={unit === "c"} title="Use Celsius">°C</button>
               <span aria-hidden="true">|</span>
-              <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"}>°F</button>
+              <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"} title="Use Fahrenheit">°F</button>
             </div>
             <button className="icon-button theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
               <Icon name={theme === "dark" ? "sun" : "moon"} />

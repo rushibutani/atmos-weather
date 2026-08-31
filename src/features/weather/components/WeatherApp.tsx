@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, PointerEvent, WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, PointerEvent, WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { RawWeatherResponse, Unit, WeatherData } from "@/types/weather";
 import { formatDate, formatDay, formatPrecipitation, formatRelativeUpdate, formatTemperature, formatTime, formatTimezone, formatUV, formatVisibility, formatWind, normalizeWeather, summary } from "@/features/weather/utils/weather";
 import { WeatherIcon } from "./WeatherIcon";
@@ -58,7 +59,7 @@ const savedUnit = (): Unit => {
 
 const savedTheme = () => {
   if (typeof window === "undefined") return "light";
-  return window.localStorage.getItem("atmos-theme") ?? "light";
+  return document.documentElement.dataset.theme ?? "light";
 };
 
 async function loadWeather(city: string, days = 10) {
@@ -107,6 +108,7 @@ export function WeatherApp() {
   const hourlyTrackRef = useRef<HTMLDivElement>(null);
   const hourlyDragRef = useRef<{ x: number; scrollLeft: number } | null>(null);
   const requestSequenceRef = useRef(0);
+  const themeTransitionRef = useRef(false);
   const [query, setQuery] = useState(DEFAULT_CITY);
   const [unit, setUnit] = useState<Unit>(savedUnit);
   const [theme, setTheme] = useState(savedTheme);
@@ -161,6 +163,37 @@ export function WeatherApp() {
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem("atmos-theme", theme);
   }, [theme]);
+
+  const toggleTheme = (event: MouseEvent<HTMLButtonElement>) => {
+    if (themeTransitionRef.current) return;
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    const root = document.documentElement;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const originX = rect.left + rect.width / 2;
+    const originY = rect.top + rect.height / 2;
+    const radius = Math.hypot(
+      Math.max(originX, window.innerWidth - originX),
+      Math.max(originY, window.innerHeight - originY),
+    );
+    root.style.setProperty("--theme-x", `${originX}px`);
+    root.style.setProperty("--theme-y", `${originY}px`);
+    root.style.setProperty("--theme-radius", `${Math.ceil(radius)}px`);
+
+    const applyTheme = () => {
+      flushSync(() => setTheme(nextTheme));
+      root.dataset.theme = nextTheme;
+    };
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const transitionDocument = document as Document & { startViewTransition?: (update: () => void) => { finished: Promise<void> } };
+
+    if (reducedMotion || !transitionDocument.startViewTransition) {
+      applyTheme();
+      return;
+    }
+    themeTransitionRef.current = true;
+    const transition = transitionDocument.startViewTransition(applyTheme);
+    void transition.finished.finally(() => { themeTransitionRef.current = false; });
+  };
 
   useEffect(() => {
     window.localStorage.setItem("atmos-unit", unit);
@@ -329,10 +362,10 @@ export function WeatherApp() {
           </a>
           <form className="search" onSubmit={onSubmit}>
             <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search weather by city" placeholder="Search a city" autoComplete="off" />
-            <button type="submit" disabled={loading || !query.trim()} aria-label="Search weather" title="Search weather"><Icon name="search" /><span>{loading ? "Loading…" : "Search"}</span></button>
+            <button className={loading ? "is-loading" : ""} type="submit" disabled={loading || !query.trim()} aria-label="Search weather" title="Search weather"><Icon name="search" /><span>{loading ? "Loading…" : "Search"}</span></button>
           </form>
           <div className="header-actions">
-            <button className="icon-button location" onClick={locate} disabled={locating} type="button" aria-label="Use current location" title="Use current location">
+            <button className={`icon-button location ${locating ? "is-locating" : ""}`} onClick={locate} disabled={locating} type="button" aria-label="Use current location" title="Use current location">
               <Icon name="location" />
               <span>{locating ? "Locating…" : "Use location"}</span>
             </button>
@@ -341,8 +374,8 @@ export function WeatherApp() {
               <span aria-hidden="true">|</span>
               <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"} title="Use Fahrenheit">°F</button>
             </div>
-            <button className="icon-button theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
-              <Icon name={theme === "dark" ? "sun" : "moon"} />
+            <button className="icon-button theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} aria-pressed={theme === "dark"} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+              <span className="theme-icon" key={theme}><Icon name={theme === "dark" ? "sun" : "moon"} /></span>
             </button>
           </div>
         </div>
@@ -361,7 +394,7 @@ export function WeatherApp() {
         </div>
       )}
 
-      <main className={`shell weather-content ${loading ? "is-refreshing" : ""}`} id="top" aria-busy={loading}>
+      <main className={`shell weather-content ${loading ? "is-refreshing" : ""}`} key={`${weather.location.city}-${weather.current.updatedAt}`} id="top" aria-busy={loading}>
         <section className={`hero ${weather.current.condition.isDay ? "" : "night"}`}>
           <div className="hero-ambient" aria-hidden="true"><span /><span /></div>
           <div className="hero-copy">
@@ -372,7 +405,7 @@ export function WeatherApp() {
               </div>
             </div>
             <div className="current">
-              <span className="temperature">{formatTemperature(weather.current.temperature, unit)}</span>
+              <span className="temperature" key={`${weather.current.temperature}-${unit}`}>{formatTemperature(weather.current.temperature, unit)}</span>
               <div className="current-condition">
                 <WeatherIcon condition={weather.current.condition} size={62} />
                 <h1>{weather.current.condition.text}</h1>
@@ -409,7 +442,7 @@ export function WeatherApp() {
           <div className={`hour-scroll ${hourlyEdges.left ? "can-scroll-left" : ""} ${hourlyEdges.right ? "can-scroll-right" : ""}`}>
             <div className="hour-track" ref={hourlyTrackRef} onScroll={updateHourlyEdges} onWheel={scrollHourly} onPointerDown={startHourlyDrag} onPointerMove={moveHourlyDrag} onPointerUp={stopHourlyDrag} onPointerCancel={stopHourlyDrag} tabIndex={0} aria-label="Scrollable 24-hour forecast">
               {hours.map((hour, index) => (
-                <div className={`hour ${index === 0 ? "now" : ""}`} key={hour.time}>
+                <div className={`hour ${index === 0 ? "now" : ""}`} style={{ "--item-index": Math.min(index, 7) } as React.CSSProperties} key={hour.time}>
                   <span>{index === 0 ? "Now" : formatTime(hour.time)}</span>
                   <WeatherIcon condition={hour.condition} size={38} />
                   <strong>{formatTemperature(hour.temperature, unit)}</strong>
@@ -432,7 +465,7 @@ export function WeatherApp() {
               const left = ((day.min - forecastMin) / forecastRange) * 100;
               const width = ((day.max - day.min) / forecastRange) * 100;
               return (
-                <div className={`day-row ${index === 0 ? "today" : ""}`} key={day.date}>
+                <div className={`day-row ${index === 0 ? "today" : ""}`} style={{ "--item-index": index } as React.CSSProperties} key={day.date}>
                   <div className="day-label">
                     <strong>{formatDay(day.date, index === 0)}</strong>
                     <span>{formatDate(day.date)}</span>

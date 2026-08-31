@@ -60,6 +60,7 @@ export function WeatherApp() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [hourlyEdges, setHourlyEdges] = useState({ left: false, right: false });
 
   const fetchWeather = useCallback(async (nextCity: string) => {
     setLoading(true);
@@ -94,11 +95,30 @@ export function WeatherApp() {
     window.localStorage.setItem("atmos-unit", unit);
   }, [unit]);
 
+  const updateHourlyEdges = useCallback(() => {
+    const track = hourlyTrackRef.current;
+    if (!track) return;
+    const maxScroll = track.scrollWidth - track.clientWidth;
+    const left = track.scrollLeft > 1;
+    const right = maxScroll > 1 && track.scrollLeft < maxScroll - 1;
+    setHourlyEdges((current) => current.left === left && current.right === right ? current : { left, right });
+  }, []);
+
+  useEffect(() => {
+    const track = hourlyTrackRef.current;
+    if (!track || !weather) return;
+    updateHourlyEdges();
+    const resizeObserver = new ResizeObserver(updateHourlyEdges);
+    resizeObserver.observe(track);
+    return () => resizeObserver.disconnect();
+  }, [weather, updateHourlyEdges]);
+
   const today = weather?.forecast[0];
   const hours = today?.hours.slice(0, 24) ?? [];
-  const allTemps = weather?.forecast.flatMap((day) => [day.min, day.max]) ?? [];
-  const weekMin = allTemps.length ? Math.min(...allTemps) : 0;
-  const weekMax = allTemps.length ? Math.max(...allTemps) : 1;
+  const tenDayForecast = weather?.forecast.slice(0, 10) ?? [];
+  const forecastMin = tenDayForecast.length ? Math.min(...tenDayForecast.map((day) => day.min)) : 0;
+  const forecastMax = tenDayForecast.length ? Math.max(...tenDayForecast.map((day) => day.max)) : 1;
+  const forecastRange = Math.max(forecastMax - forecastMin, 1);
 
   const localDate = useMemo(() => {
     if (!weather) return "";
@@ -229,18 +249,17 @@ export function WeatherApp() {
             <span className="brand-name">Atmos</span>
           </a>
           <form className="search" onSubmit={onSubmit}>
-            <Icon name="search" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search city" placeholder="Search a city" />
-            <button type="submit" aria-label="Search weather">Search</button>
+            <button type="submit" aria-label="Search weather" title="Search weather"><Icon name="search" /><span>Search</span></button>
           </form>
           <div className="header-actions">
-            <button className="icon-button location" onClick={locate} type="button" aria-label="Use current location">
+            <button className="icon-button location" onClick={locate} type="button" aria-label="Use current location" title="Use current location">
               <Icon name="location" />
               <span>Use location</span>
             </button>
-            <div className="segmented" aria-label="Temperature unit">
-              <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button">C</button>
-              <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button">F</button>
+            <div className="segmented" role="group" aria-label="Temperature unit">
+              <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-label="Use Celsius" aria-pressed={unit === "c"} title="Use Celsius">°C</button>
+              <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"} title="Use Fahrenheit">°F</button>
             </div>
             <button className="icon-button theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
               <Icon name={theme === "dark" ? "sun" : "moon"} />
@@ -293,15 +312,17 @@ export function WeatherApp() {
             </div>
             <span className="timezone"><Icon name="clock" size={14} />{weather.location.timezone}</span>
           </div>
-          <div className="hour-track" ref={hourlyTrackRef} onWheel={scrollHourly} onPointerDown={startHourlyDrag} onPointerMove={moveHourlyDrag} onPointerUp={stopHourlyDrag} onPointerCancel={stopHourlyDrag} tabIndex={0} aria-label="Scrollable 24-hour forecast">
-            {hours.map((hour, index) => (
-              <div className={`hour ${index === 0 ? "now" : ""}`} key={hour.time}>
-                <span>{index === 0 ? "Now" : hourLabel(hour.time)}</span>
-                <WeatherIcon condition={hour.condition} size={38} />
-                <strong>{temp(hour.temperature, unit)}</strong>
-                <small>{speed(hour.windSpeed, unit)}</small>
-              </div>
-            ))}
+          <div className={`hour-scroll ${hourlyEdges.left ? "can-scroll-left" : ""} ${hourlyEdges.right ? "can-scroll-right" : ""}`}>
+            <div className="hour-track" ref={hourlyTrackRef} onScroll={updateHourlyEdges} onWheel={scrollHourly} onPointerDown={startHourlyDrag} onPointerMove={moveHourlyDrag} onPointerUp={stopHourlyDrag} onPointerCancel={stopHourlyDrag} tabIndex={0} aria-label="Scrollable 24-hour forecast">
+              {hours.map((hour, index) => (
+                <div className={`hour ${index === 0 ? "now" : ""}`} key={hour.time}>
+                  <span>{index === 0 ? "Now" : hourLabel(hour.time)}</span>
+                  <WeatherIcon condition={hour.condition} size={38} />
+                  <strong>{temp(hour.temperature, unit)}</strong>
+                  <small>{speed(hour.windSpeed, unit)}</small>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -313,9 +334,9 @@ export function WeatherApp() {
                 <h2>10-day forecast</h2>
               </div>
             </div>
-            {weather.forecast.map((day, index) => {
-              const left = ((day.min - weekMin) / Math.max(weekMax - weekMin, 1)) * 100;
-              const width = ((day.max - day.min) / Math.max(weekMax - weekMin, 1)) * 100;
+            {tenDayForecast.map((day, index) => {
+              const left = ((day.min - forecastMin) / forecastRange) * 100;
+              const width = ((day.max - day.min) / forecastRange) * 100;
               return (
                 <div className={`day-row ${index === 0 ? "today" : ""}`} key={day.date}>
                   <div className="day-label">
@@ -344,7 +365,7 @@ export function WeatherApp() {
                 </div>
                 <div className="detail-card wind-card">
                   <dt><span className="detail-icon"><Icon name="wind" /></span>Wind</dt>
-                  <dd>{speed(weather.current.windSpeed, unit)}</dd>
+                  <dd>{Math.round(unit === "c" ? weather.current.windSpeed : weather.current.windSpeed * 0.621371)}<span className="detail-unit"> {unit === "c" ? "km/h" : "mph"}</span></dd>
                   <p>{weather.current.windSpeed < 12 ? "Light breeze" : weather.current.windSpeed < 30 ? "Moderate breeze" : "Strong winds"}</p>
                   <span className="detail-card-mark" aria-hidden="true"><Icon name="wind" size={36} /></span>
                 </div>

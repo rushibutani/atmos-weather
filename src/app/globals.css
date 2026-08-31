@@ -1,4 +1,9 @@
 @import "tailwindcss";
+
+html .updated{opacity:.72}
+.hour-scroll{position:relative}.hour-scroll::before,.hour-scroll::after{position:absolute;z-index:2;top:0;bottom:8px;width:44px;content:"";pointer-events:none;opacity:0;transition:opacity .2s ease}.hour-scroll::before{left:0;background:linear-gradient(90deg,var(--surface),transparent)}.hour-scroll::after{right:0;background:linear-gradient(270deg,var(--surface),transparent)}.hour-scroll.can-scroll-left::before,.hour-scroll.can-scroll-right::after{opacity:1}.hour-scroll .hour-track{scroll-snap-type:x mandatory}.hour-scroll .hour{scroll-snap-align:start;scroll-snap-stop:normal}
+.section.hourly{overflow:hidden;padding-right:30px}.section.hourly .section-heading{padding-right:0}
+@media(max-width:560px){.section.hourly{padding-right:18px}.section.hourly .section-heading{padding-right:0}}
 /* Refined interaction and history timeline */
 body .section{border:0!important;box-shadow:0 1px 3px rgb(0 0 0 / 5%)}
 body .details.detail-grid{gap:14px}
@@ -25,3 +30,13 @@ body .day-row{grid-template-columns:88px minmax(160px,1fr) 40px minmax(60px,120p
 @media(max-width:900px){.header-inner{width:min(760px,calc(100% - 32px));padding:14px 0;grid-template-columns:max-content minmax(0,1fr) max-content}.header-actions{grid-row:1;grid-column:3;justify-self:end}.search{width:100%}}
 @media(max-width:560px){.header-inner{width:calc(100% - 24px);padding:12px 0;grid-template-columns:max-content minmax(0,1fr);column-gap:12px;row-gap:12px}.brand{gap:8px}.brand-name{display:inline!important}.header-actions{grid-column:2;justify-self:end}.location{display:flex}.search{grid-column:1/-1}.search button{width:auto;padding:0 14px;font-size:inherit}.search button::after{content:none}}
 @media(max-width:360px){.header-inner{padding-inline:0;column-gap:8px}.brand{gap:7px}.brand-mark{width:30px;height:30px}.brand-name{font-size:15px}.header-actions{gap:6px}}
+
+/* Keep metric units typographically consistent instead of rendering them as chips. */
+.details dd .detail-unit{padding:0;border-radius:0;background:none;color:var(--sub)}
+
+/* Keep keyboard focus visible on every interactive control. */
+button:focus-visible,input:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--accent);outline-offset:3px;box-shadow:0 0 0 1px var(--surface)}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}
+.search input:focus-visible{outline:none;box-shadow:none}
+.search button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.hourly .hour-track:focus-visible{outline:3px solid var(--accent);outline-offset:5px;box-shadow:0 0 0 1px var(--surface)}

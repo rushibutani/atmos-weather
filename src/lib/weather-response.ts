@@ -41,8 +41,23 @@ function isForecastDay(value: unknown) {
     && value.hour.every(isHour);
 }
 
+function isAlert(value: unknown) {
+  return isRecord(value)
+    && isString(value.headline)
+    && isString(value.event)
+    && isString(value.severity)
+    && isString(value.urgency)
+    && isString(value.areas)
+    && isString(value.effective)
+    && isString(value.expires)
+    && isString(value.desc)
+    && isString(value.instruction);
+}
+
 export function isRawWeatherResponse(value: unknown): value is RawWeatherResponse {
   if (!isRecord(value) || !isRecord(value.location) || !isRecord(value.current) || !isRecord(value.forecast)) return false;
+  const alertsAreValid = value.alerts === undefined
+    || (isRecord(value.alerts) && Array.isArray(value.alerts.alert) && value.alerts.alert.every(isAlert));
   return isString(value.location.name)
     && (value.location.region === undefined || isString(value.location.region))
     && isString(value.location.country)
@@ -59,5 +74,6 @@ export function isRawWeatherResponse(value: unknown): value is RawWeatherRespons
     && isCondition(value.current.condition)
     && Array.isArray(value.forecast.forecastday)
     && value.forecast.forecastday.length > 0
-    && value.forecast.forecastday.every(isForecastDay);
+    && value.forecast.forecastday.every(isForecastDay)
+    && alertsAreValid;
 }

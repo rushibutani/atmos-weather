@@ -46,6 +46,17 @@ export function normalizeWeather(raw: RawWeatherResponse): WeatherData {
         condition: condition(hour.condition, Boolean(hour.is_day)),
       })),
     })),
+    alerts: (raw.alerts?.alert ?? []).map((alert) => ({
+      headline: alert.headline,
+      event: alert.event,
+      severity: alert.severity,
+      urgency: alert.urgency,
+      areas: alert.areas,
+      effective: alert.effective,
+      expires: alert.expires,
+      description: alert.desc,
+      instruction: alert.instruction,
+    })),
   };
 }
 

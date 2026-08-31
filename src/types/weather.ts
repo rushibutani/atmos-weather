@@ -47,6 +47,19 @@ export interface WeatherData {
     updatedAt: string;
   };
   forecast: DayWeather[];
+  alerts: WeatherAlert[];
+}
+
+export interface WeatherAlert {
+  headline: string;
+  event: string;
+  severity: string;
+  urgency: string;
+  areas: string;
+  effective: string;
+  expires: string;
+  description: string;
+  instruction: string;
 }
 
 export interface HistoryDay {
@@ -112,6 +125,19 @@ export interface RawWeatherResponse {
           icon: string;
         };
       }>;
+    }>;
+  };
+  alerts?: {
+    alert: Array<{
+      headline: string;
+      event: string;
+      severity: string;
+      urgency: string;
+      areas: string;
+      effective: string;
+      expires: string;
+      desc: string;
+      instruction: string;
     }>;
   };
 }

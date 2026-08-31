@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, MouseEvent, PointerEvent, WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent, PointerEvent, WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { RawWeatherResponse, Unit, WeatherData } from "@/types/weather";
 import { formatDate, formatDay, formatPrecipitation, formatRelativeUpdate, formatTemperature, formatTime, formatTimezone, formatUV, formatVisibility, formatWind, normalizeWeather, summary } from "@/features/weather/utils/weather";
@@ -8,8 +8,11 @@ import { WeatherIcon } from "./WeatherIcon";
 
 const DEFAULT_CITY = "Ahmedabad";
 const WEATHER_CACHE_KEY = "atmos-weather-cache-v1";
+const LAST_CITY_KEY = "atmos-last-city";
+const RECENT_CITIES_KEY = "atmos-recent-cities-v1";
 const WEATHER_CACHE_TTL = 10 * 60_000;
 const MAX_CACHED_LOCATIONS = 5;
+const MAX_RECENT_CITIES = 5;
 
 type WeatherCacheEntry = { data: WeatherData; savedAt: number };
 type WeatherCache = Record<string, WeatherCacheEntry>;
@@ -18,6 +21,27 @@ const memoryCache = new Map<string, WeatherCacheEntry>();
 const pendingWeather = new Map<string, Promise<WeatherData>>();
 
 const weatherKey = (city: string, days: number) => `${city.trim().replace(/\s+/g, " ").toLocaleLowerCase()}|${days}`;
+const normalizeCity = (city: string) => city.trim().replace(/\s+/g, " ");
+
+function readRecentCities() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(RECENT_CITIES_KEY) ?? "[]") as unknown;
+    return Array.isArray(stored) ? stored.filter((city): city is string => typeof city === "string" && Boolean(normalizeCity(city))).slice(0, MAX_RECENT_CITIES) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberCity(city: string) {
+  const normalized = normalizeCity(city);
+  if (!normalized) return [];
+  const recent = [normalized, ...readRecentCities().filter((item) => item.toLocaleLowerCase() !== normalized.toLocaleLowerCase())].slice(0, MAX_RECENT_CITIES);
+  try {
+    window.localStorage.setItem(LAST_CITY_KEY, normalized);
+    window.localStorage.setItem(RECENT_CITIES_KEY, JSON.stringify(recent));
+  } catch { /* Preferences are optional when browser storage is unavailable. */ }
+  return recent;
+}
 
 function readWeatherCache(key: string) {
   const memoryEntry = memoryCache.get(key);
@@ -51,16 +75,6 @@ function writeWeatherCache(key: string, data: WeatherData) {
     window.localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(cache));
   } catch { /* Weather still works when storage is blocked or full. */ }
 }
-
-const savedUnit = (): Unit => {
-  if (typeof window === "undefined") return "c";
-  return (window.localStorage.getItem("atmos-unit") as Unit | null) ?? "c";
-};
-
-const savedTheme = () => {
-  if (typeof window === "undefined") return "light";
-  return document.documentElement.dataset.theme ?? "light";
-};
 
 async function loadWeather(city: string, days = 10) {
   const key = weatherKey(city, days);
@@ -105,13 +119,15 @@ function Icon({ name, size = 18 }: { name: UiIcon; size?: number }) {
 }
 
 export function WeatherApp() {
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const hourlyTrackRef = useRef<HTMLDivElement>(null);
   const hourlyDragRef = useRef<{ x: number; scrollLeft: number } | null>(null);
   const requestSequenceRef = useRef(0);
   const themeTransitionRef = useRef(false);
   const [query, setQuery] = useState(DEFAULT_CITY);
-  const [unit, setUnit] = useState<Unit>(savedUnit);
-  const [theme, setTheme] = useState(savedTheme);
+  const [unit, setUnit] = useState<Unit>("c");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -119,8 +135,9 @@ export function WeatherApp() {
   const [locating, setLocating] = useState(false);
   const [offline, setOffline] = useState(false);
   const [hourlyEdges, setHourlyEdges] = useState({ left: false, right: false });
+  const [recentCities, setRecentCities] = useState<string[]>([]);
 
-  const fetchWeather = useCallback(async (nextCity: string) => {
+  const fetchWeather = useCallback(async (nextCity: string, showResolvedCity = false, rememberSearch = true) => {
     const requestSequence = ++requestSequenceRef.current;
     setLoading(true);
     setError("");
@@ -128,8 +145,9 @@ export function WeatherApp() {
       const data = await loadWeather(nextCity);
       if (requestSequence !== requestSequenceRef.current) return;
       setWeather(data);
-      setQuery(nextCity);
-      window.localStorage.setItem("atmos-last-weather", JSON.stringify(data));
+      setQuery(showResolvedCity ? data.location.city : nextCity);
+      try { window.localStorage.setItem("atmos-last-weather", JSON.stringify(data)); } catch { /* Offline fallback is optional. */ }
+      if (rememberSearch) setRecentCities(rememberCity(nextCity));
       setStatus(`Weather updated for ${data.location.city}.`);
     } catch (err) {
       if (requestSequence !== requestSequenceRef.current) return;
@@ -141,11 +159,18 @@ export function WeatherApp() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const cached = window.localStorage.getItem("atmos-last-weather");
+      let cached: string | null = null;
+      let initialCity = DEFAULT_CITY;
+      try {
+        cached = window.localStorage.getItem("atmos-last-weather");
+        initialCity = normalizeCity(window.localStorage.getItem(LAST_CITY_KEY) ?? "") || DEFAULT_CITY;
+        setRecentCities(readRecentCities());
+      } catch { /* Use defaults when browser storage is unavailable. */ }
+      setQuery(initialCity);
       if (!navigator.onLine && cached) {
         try { setWeather(JSON.parse(cached) as WeatherData); setLoading(false); setOffline(true); return; } catch { /* Ignore invalid cache. */ }
       }
-      void fetchWeather(DEFAULT_CITY);
+      void fetchWeather(initialCity, false, false);
     }, 0);
 
     return () => window.clearTimeout(timer);
@@ -160,9 +185,27 @@ export function WeatherApp() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const storedUnit = window.localStorage.getItem("atmos-unit");
+        if (storedUnit === "c" || storedUnit === "f") setUnit(storedUnit);
+
+        const activeTheme = document.documentElement.dataset.theme;
+        if (activeTheme === "light" || activeTheme === "dark") setTheme(activeTheme);
+      } catch {
+        // Keep deterministic defaults when browser storage is unavailable.
+      } finally {
+        setPreferencesReady(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!preferencesReady) return;
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem("atmos-theme", theme);
-  }, [theme]);
+  }, [preferencesReady, theme]);
 
   const toggleTheme = (event: MouseEvent<HTMLButtonElement>) => {
     if (themeTransitionRef.current) return;
@@ -196,8 +239,9 @@ export function WeatherApp() {
   };
 
   useEffect(() => {
+    if (!preferencesReady) return;
     window.localStorage.setItem("atmos-unit", unit);
-  }, [unit]);
+  }, [preferencesReady, unit]);
 
   const updateHourlyEdges = useCallback(() => {
     const track = hourlyTrackRef.current;
@@ -266,6 +310,12 @@ export function WeatherApp() {
     if (nextCity) void fetchWeather(nextCity);
   };
 
+  const clearSearch = () => {
+    setQuery("");
+    setStatus("Search cleared.");
+    searchInputRef.current?.focus();
+  };
+
   const locate = () => {
     if (!navigator.geolocation) {
       setError("Location isn't supported by this browser. Search for a city instead.");
@@ -276,7 +326,7 @@ export function WeatherApp() {
     setLocating(true);
     setStatus("Waiting for location permission.");
     navigator.geolocation.getCurrentPosition(
-      (position) => { setLocating(false); void fetchWeather(`${position.coords.latitude},${position.coords.longitude}`); },
+      (position) => { setLocating(false); void fetchWeather(`${position.coords.latitude},${position.coords.longitude}`, true, false); },
       (positionError) => {
         setLocating(false);
         switch (positionError.code) {
@@ -331,61 +381,88 @@ export function WeatherApp() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
+  const handleHourlyKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const track = event.currentTarget;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
+    if (track.scrollWidth <= track.clientWidth) return;
+
+    event.preventDefault();
+    if (event.key === "Home" || event.key === "End") {
+      track.scrollTo({ left: event.key === "Home" ? 0 : track.scrollWidth, behavior: "smooth" });
+      return;
+    }
+    const hour = track.querySelector<HTMLElement>(".hour");
+    const step = hour?.offsetWidth || Math.max(Math.round(track.clientWidth * 0.75), 1);
+    track.scrollBy({ left: event.key === "ArrowLeft" ? -step : step, behavior: "smooth" });
+  };
+
+  const appHeader = (
+    <header>
+      <div className="header-inner">
+        <a className="brand" href="#top" aria-label="Atmos home">
+          <span className="brand-mark">A</span>
+          <span className="brand-name">Atmos</span>
+        </a>
+        <form className="search" onSubmit={onSubmit} role="search">
+          <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search weather by city" placeholder="Search a city" autoComplete="address-level2" list="recent-cities" />
+          <datalist id="recent-cities">
+            {recentCities.map((city) => <option value={city} key={city} />)}
+          </datalist>
+          {query && <button className="search-clear" type="button" onClick={clearSearch} aria-label="Clear search" title="Clear search"><Icon name="close" size={16} /></button>}
+          <button className={`search-submit ${loading ? "is-loading" : ""}`} type="submit" disabled={!query.trim()} aria-label="Search weather" title="Search weather"><Icon name="search" /><span>{loading ? "Loading…" : "Search"}</span></button>
+        </form>
+        <div className="header-actions">
+          <button className={`icon-button location ${locating ? "is-locating" : ""}`} onClick={locate} disabled={locating} type="button" aria-label="Use current location" title="Use current location">
+            <Icon name="location" />
+            <span>{locating ? "Locating…" : "Use location"}</span>
+          </button>
+          <div className="segmented" role="group" aria-label="Temperature unit">
+            <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-label="Use Celsius" aria-pressed={unit === "c"} title="Use Celsius">°C</button>
+            <span aria-hidden="true">|</span>
+            <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"} title="Use Fahrenheit">°F</button>
+          </div>
+          <button className="icon-button theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} aria-pressed={theme === "dark"} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+            <span className="theme-icon" key={theme}><Icon name={theme === "dark" ? "sun" : "moon"} /></span>
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+
   if (loading && !weather) {
     return (
-      <main className="shell" aria-busy="true">
-        <span className="sr-only" role="status">Loading weather</span>
-        <div className="hero-skeleton skeleton"><i/><i/><i/><i/></div>
-        <div className="strip-skeleton skeleton"><i/><i/><i/><i/><i/><i/></div>
-        <div className="skeleton-grid"><div className="rows-skeleton skeleton"/><div className="cards-skeleton">{[0,1,2,3].map((item) => <i className="skeleton" key={item}/>)}</div></div>
-      </main>
+      <>
+        {appHeader}
+        <main className="shell" aria-busy="true" id="top">
+          <span className="sr-only" role="status">Loading weather</span>
+          <div className="hero-skeleton skeleton"><i/><i/><i/><i/></div>
+          <div className="strip-skeleton skeleton"><i/><i/><i/><i/><i/><i/></div>
+          <div className="skeleton-grid"><div className="rows-skeleton skeleton"/><div className="cards-skeleton">{[0,1,2,3].map((item) => <i className="skeleton" key={item}/>)}</div></div>
+        </main>
+      </>
     );
   }
 
   if (!weather || !today) {
     return (
-      <main className="center-state">
-        <h1>Atmos</h1>
-        <p>{error || (offline ? "You're offline and no saved weather is available." : "Forecast data isn't available for this location right now.")}</p>
-        {!offline && <button className="button primary" onClick={() => void fetchWeather(DEFAULT_CITY)}>Try again</button>}
-      </main>
+      <>
+        {appHeader}
+        <main className="center-state" id="top">
+          <h1>Weather unavailable</h1>
+          <p>{error || (offline ? "You're offline and no saved weather is available." : "Forecast data isn't available for this location right now.")}</p>
+          {!offline && <button className="button primary" onClick={() => void fetchWeather(query.trim() || DEFAULT_CITY)}>Try again</button>}
+        </main>
+      </>
     );
   }
 
   return (
     <>
-      <header>
-        <div className="header-inner">
-          <a className="brand" href="#top" aria-label="Atmos home">
-            <span className="brand-mark">A</span>
-            <span className="brand-name">Atmos</span>
-          </a>
-          <form className="search" onSubmit={onSubmit}>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search weather by city" placeholder="Search a city" autoComplete="off" />
-            <button className={loading ? "is-loading" : ""} type="submit" disabled={loading || !query.trim()} aria-label="Search weather" title="Search weather"><Icon name="search" /><span>{loading ? "Loading…" : "Search"}</span></button>
-          </form>
-          <div className="header-actions">
-            <button className={`icon-button location ${locating ? "is-locating" : ""}`} onClick={locate} disabled={locating} type="button" aria-label="Use current location" title="Use current location">
-              <Icon name="location" />
-              <span>{locating ? "Locating…" : "Use location"}</span>
-            </button>
-            <div className="segmented" role="group" aria-label="Temperature unit">
-              <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-label="Use Celsius" aria-pressed={unit === "c"} title="Use Celsius">°C</button>
-              <span aria-hidden="true">|</span>
-              <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"} title="Use Fahrenheit">°F</button>
-            </div>
-            <button className="icon-button theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} aria-pressed={theme === "dark"} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
-              <span className="theme-icon" key={theme}><Icon name={theme === "dark" ? "sun" : "moon"} /></span>
-            </button>
-          </div>
-        </div>
-      </header>
+      {appHeader}
 
       <div className="sr-only" aria-live="polite">{status}</div>
-      {offline && <div className="offline-notice" role="status">Offline · showing last updated weather</div>}
-
       {error && (
-        <div className="notice" role="status">
+        <div className="notice" role="alert">
           <div>
             <strong>Forecast not updated</strong>
             <span>{error}</span>
@@ -402,6 +479,10 @@ export function WeatherApp() {
               <div>
                 <p className="eyebrow"><Icon name="location" size={13} />{weather.location.city}{weather.location.region ? `, ${weather.location.region}` : `, ${weather.location.country}`}</p>
                 <p className="local-date">{localDate}</p>
+                <p className={`updated ${offline ? "is-offline" : ""}`} role={offline ? "status" : undefined} title={`Exact update: ${weather.current.updatedAt}`}>
+                  <Icon name="clock" size={14} />
+                  {offline ? `Offline · saved weather updated ${formatRelativeUpdate(weather.current.updatedAt, weather.location.localtime)}` : loading ? "Refreshing forecast…" : `Updated ${formatRelativeUpdate(weather.current.updatedAt, weather.location.localtime)}`}
+                </p>
               </div>
             </div>
             <div className="current">
@@ -412,7 +493,6 @@ export function WeatherApp() {
               </div>
             </div>
             <p className="summary">{summary(weather, unit)}</p>
-            <p className="updated" title={`Exact update: ${weather.current.updatedAt}`}><Icon name="clock" size={14} /> Updated {formatRelativeUpdate(weather.current.updatedAt, weather.location.localtime)}</p>
           </div>
           <div className="hero-glance" aria-label="Weather at a glance">
             <p className="glance-label">At a glance</p>
@@ -431,6 +511,21 @@ export function WeatherApp() {
           </div>
         </section>
 
+        {(weather.alerts?.length ?? 0) > 0 && (
+          <section className="weather-alerts" aria-label="Weather alerts">
+            {weather.alerts?.map((alert, index) => (
+              <article className="weather-alert" role="alert" key={`${alert.headline}-${alert.effective}-${index}`}>
+                <p className="weather-alert-label">{alert.severity || "Weather alert"}{alert.urgency ? ` · ${alert.urgency}` : ""}</p>
+                <h2>{alert.headline || alert.event}</h2>
+                {alert.areas && <p className="weather-alert-areas">For {alert.areas}</p>}
+                {alert.description && <p>{alert.description}</p>}
+                {alert.instruction && <p><strong>What to do:</strong> {alert.instruction}</p>}
+                {alert.expires && <p className="weather-alert-expires">Expires {alert.expires}</p>}
+              </article>
+            ))}
+          </section>
+        )}
+
         <section className="section hourly">
           <div className="section-heading">
             <div>
@@ -440,7 +535,7 @@ export function WeatherApp() {
             <span className="timezone" title={weather.location.timezone}><Icon name="clock" size={14} />Local time · {formatTimezone(weather.location.timezone)}</span>
           </div>
           <div className={`hour-scroll ${hourlyEdges.left ? "can-scroll-left" : ""} ${hourlyEdges.right ? "can-scroll-right" : ""}`}>
-            <div className="hour-track" ref={hourlyTrackRef} onScroll={updateHourlyEdges} onWheel={scrollHourly} onPointerDown={startHourlyDrag} onPointerMove={moveHourlyDrag} onPointerUp={stopHourlyDrag} onPointerCancel={stopHourlyDrag} tabIndex={0} aria-label="Scrollable 24-hour forecast">
+            <div className="hour-track" ref={hourlyTrackRef} onScroll={updateHourlyEdges} onWheel={scrollHourly} onKeyDown={handleHourlyKeyDown} onPointerDown={startHourlyDrag} onPointerMove={moveHourlyDrag} onPointerUp={stopHourlyDrag} onPointerCancel={stopHourlyDrag} tabIndex={0} aria-label="Scrollable 24-hour forecast. Use left and right arrow keys to navigate." aria-keyshortcuts="ArrowLeft ArrowRight Home End">
               {hours.map((hour, index) => (
                 <div className={`hour ${index === 0 ? "now" : ""}`} style={{ "--item-index": Math.min(index, 7) } as React.CSSProperties} key={hour.time}>
                   <span>{index === 0 ? "Now" : formatTime(hour.time)}</span>
@@ -486,27 +581,19 @@ export function WeatherApp() {
             <dl className="details detail-grid" aria-label="Current weather conditions">
                 <div className="detail-card feels-card">
                   <dt><span className="detail-icon"><Icon name="sun" /></span>Feels like</dt>
-                  <dd>{formatTemperature(weather.current.feelsLike, unit)}</dd>
-                  <p>{weather.current.feelsLike > weather.current.temperature + 2 ? "Feels warmer" : weather.current.feelsLike < weather.current.temperature - 2 ? "Feels cooler" : "Close to actual"}</p>
-                  <span className="detail-card-mark" aria-hidden="true"><Icon name="sun" size={36} /></span>
+                  <dd><span className="detail-value">{formatTemperature(weather.current.feelsLike, unit)}</span><p>{weather.current.feelsLike > weather.current.temperature + 2 ? "Feels warmer" : weather.current.feelsLike < weather.current.temperature - 2 ? "Feels cooler" : "Close to actual"}</p><span className="detail-card-mark" aria-hidden="true"><Icon name="sun" size={36} /></span></dd>
                 </div>
                 <div className="detail-card humidity-card">
                   <dt><span className="detail-icon"><Icon name="humidity" /></span>Humidity</dt>
-                  <dd>{weather.current.humidity}<span className="detail-unit">%</span></dd>
-                  <p>{weather.current.humidity < 30 ? "Dry air" : weather.current.humidity <= 60 ? "Comfortable" : "High humidity"}</p>
-                  <span className="detail-meter" aria-hidden="true"><i style={{ width: `${Math.min(weather.current.humidity, 100)}%` }} /></span>
+                  <dd><span className="detail-value">{weather.current.humidity}<span className="detail-unit">%</span></span><p>{weather.current.humidity < 30 ? "Dry air" : weather.current.humidity <= 60 ? "Comfortable" : "High humidity"}</p><span className="detail-meter humidity-meter" aria-hidden="true"><i style={{ width: `${Math.min(weather.current.humidity, 100)}%` }} /></span></dd>
                 </div>
                 <div className="detail-card wind-card">
                   <dt><span className="detail-icon"><Icon name="wind" /></span>Wind</dt>
-                  <dd>{formatWind(weather.current.windSpeed, unit).split(" ")[0]}<span className="detail-unit"> {formatWind(weather.current.windSpeed, unit).split(" ").slice(1).join(" ")}</span></dd>
-                  <p>{weather.current.windSpeed < 12 ? "Light breeze" : weather.current.windSpeed < 30 ? "Moderate breeze" : "Strong winds"}</p>
-                  <span className="detail-card-mark" aria-hidden="true"><Icon name="wind" size={36} /></span>
+                  <dd><span className="detail-value">{formatWind(weather.current.windSpeed, unit).split(" ")[0]}<span className="detail-unit"> {formatWind(weather.current.windSpeed, unit).split(" ").slice(1).join(" ")}</span></span><p>{weather.current.windSpeed < 12 ? "Light breeze" : weather.current.windSpeed < 30 ? "Moderate breeze" : "Strong winds"}</p><span className="detail-card-mark" aria-hidden="true"><Icon name="wind" size={36} /></span></dd>
                 </div>
                 <div className="detail-card uv-card">
                   <dt><span className="detail-icon"><Icon name="uv" /></span>UV index</dt>
-                  <dd>{formatUV(weather.current.uv)}</dd>
-                  <p>{weather.current.uv < 3 ? "Low exposure" : weather.current.uv < 6 ? "Moderate exposure" : weather.current.uv < 8 ? "High exposure" : "Very high exposure"}</p>
-                  <span className="detail-meter" aria-hidden="true"><i style={{ width: `${Math.min((weather.current.uv / 11) * 100, 100)}%` }} /></span>
+                  <dd><span className="detail-value">{formatUV(weather.current.uv)}</span><p>{weather.current.uv < 3 ? "Low exposure" : weather.current.uv < 6 ? "Moderate exposure" : weather.current.uv < 8 ? "High exposure" : weather.current.uv < 11 ? "Very high exposure" : "Extreme exposure"}</p><span className="uv-scale" style={{ "--uv-position": `${Math.min((weather.current.uv / 11) * 100, 100)}%` } as React.CSSProperties} aria-hidden="true"><i /></span></dd>
                 </div>
             </dl>
             {weather.current.visibility < 5 && <p className="visibility-note"><Icon name="visibility" /> Visibility is limited to {formatVisibility(weather.current.visibility, unit)}.</p>}
@@ -531,6 +618,8 @@ export function WeatherApp() {
                 <path className="sun-chart-fill" d="M24 82 Q150 -42 276 82 L276 84 L24 84 Z" />
                 <path className="sun-chart-path" d="M24 82 Q150 -42 276 82" />
                 <path className="sun-chart-horizon" d="M16 84H284" />
+                <circle className="sun-endpoint" cx="24" cy="84" r="3" />
+                <circle className="sun-endpoint" cx="276" cy="84" r="3" />
                 <g className="sun-marker" transform={`translate(${sunX} ${sunY})`}>
                   <circle className="sun-glow" r="13" />
                   <g className="sun-rays">
@@ -538,8 +627,6 @@ export function WeatherApp() {
                   </g>
                   <circle className="sun-disc" r="9" />
                 </g>
-                <circle className="sun-endpoint" cx="24" cy="84" r="3" />
-                <circle className="sun-endpoint" cx="276" cy="84" r="3" />
               </svg>
             </section>
           </aside>

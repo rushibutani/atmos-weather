@@ -7,7 +7,7 @@ const UPSTREAM_TIMEOUT_MS = 8_000;
 export async function GET(request: NextRequest) {
   const query = validate(request, 10, 60); if ("error" in query) return query.error;
   if (!process.env.WEATHER_API_KEY) return NextResponse.json({ error: "Weather service is not configured." }, { status: 500 });
-  const url = new URL("https://api.weatherapi.com/v1/forecast.json"); url.searchParams.set("key", process.env.WEATHER_API_KEY); url.searchParams.set("q", query.city); url.searchParams.set("days", String(query.days)); url.searchParams.set("aqi", "no"); url.searchParams.set("alerts", "no");
+  const url = new URL("https://api.weatherapi.com/v1/forecast.json"); url.searchParams.set("key", process.env.WEATHER_API_KEY); url.searchParams.set("q", query.city); url.searchParams.set("days", String(query.days)); url.searchParams.set("aqi", "no"); url.searchParams.set("alerts", "yes");
   try {
     const response = await fetch(url, {
       next: { revalidate: 600 },

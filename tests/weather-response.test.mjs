@@ -44,6 +44,9 @@ const validResponse = () => ({
       }],
     }],
   },
+  alerts: {
+    alert: [],
+  },
 });
 
 test("accepts a complete WeatherAPI forecast response", () => {
@@ -61,4 +64,23 @@ test("rejects non-finite numeric weather values", () => {
   const invalid = validResponse();
   invalid.current.temp_c = Number.NaN;
   assert.equal(isRawWeatherResponse(invalid), false);
+});
+
+test("validates weather alerts when the upstream response includes them", () => {
+  const response = validResponse();
+  response.alerts.alert.push({
+    headline: "Heat warning",
+    event: "Excessive Heat",
+    severity: "Severe",
+    urgency: "Expected",
+    areas: "Ahmedabad",
+    effective: "2026-08-31T12:00:00+05:30",
+    expires: "2026-09-01T18:00:00+05:30",
+    desc: "Dangerously hot conditions are expected.",
+    instruction: "Limit time outdoors.",
+  });
+  assert.equal(isRawWeatherResponse(response), true);
+
+  response.alerts.alert[0].instruction = 42;
+  assert.equal(isRawWeatherResponse(response), false);
 });

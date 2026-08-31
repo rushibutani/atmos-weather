@@ -363,28 +363,39 @@ export function WeatherApp() {
 
       <main className={`shell weather-content ${loading ? "is-refreshing" : ""}`} id="top" aria-busy={loading}>
         <section className={`hero ${weather.current.condition.isDay ? "" : "night"}`}>
+          <div className="hero-ambient" aria-hidden="true"><span /><span /></div>
           <div className="hero-copy">
             <div className="hero-top">
-              <WeatherIcon condition={weather.current.condition} size={78} />
               <div>
-                <p className="eyebrow">{weather.location.city}{weather.location.region ? `, ${weather.location.region}` : `, ${weather.location.country}`}</p>
+                <p className="eyebrow"><Icon name="location" size={13} />{weather.location.city}{weather.location.region ? `, ${weather.location.region}` : `, ${weather.location.country}`}</p>
                 <p className="local-date">{localDate}</p>
               </div>
             </div>
             <div className="current">
               <span className="temperature">{formatTemperature(weather.current.temperature, unit)}</span>
-              <div>
-                <WeatherIcon condition={weather.current.condition} />
+              <div className="current-condition">
+                <WeatherIcon condition={weather.current.condition} size={62} />
                 <h1>{weather.current.condition.text}</h1>
               </div>
             </div>
             <p className="summary">{summary(weather, unit)}</p>
-            <p className="hero-meta">
-              Feels like {formatTemperature(weather.current.feelsLike, unit)} <i /> H {formatTemperature(today.max, unit)} <i /> L {formatTemperature(today.min, unit)} <i /> Wind {formatWind(weather.current.windSpeed, unit)}
-            </p>
             <p className="updated" title={`Exact update: ${weather.current.updatedAt}`}><Icon name="clock" size={14} /> Updated {formatRelativeUpdate(weather.current.updatedAt, weather.location.localtime)}</p>
           </div>
-          <div className="hero-orbit" aria-hidden="true"><span /><span /></div>
+          <div className="hero-glance" aria-label="Weather at a glance">
+            <p className="glance-label">At a glance</p>
+            <div className="glance-item">
+              <span><Icon name="sun" size={17} />Feels like</span>
+              <strong>{formatTemperature(weather.current.feelsLike, unit)}</strong>
+            </div>
+            <div className="glance-item">
+              <span><Icon name="sunrise" size={17} />Today</span>
+              <strong>{formatTemperature(today.max, unit)} <small>/ {formatTemperature(today.min, unit)}</small></strong>
+            </div>
+            <div className="glance-item">
+              <span><Icon name="wind" size={17} />Wind</span>
+              <strong>{formatWind(weather.current.windSpeed, unit)}</strong>
+            </div>
+          </div>
         </section>
 
         <section className="section hourly">

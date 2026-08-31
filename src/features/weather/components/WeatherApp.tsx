@@ -83,13 +83,6 @@ async function loadWeather(city: string, days = 10) {
   return request;
 }
 
-async function loadApproxLocation() {
-  const response = await fetch("/api/location");
-  if (!response.ok) return DEFAULT_CITY;
-  const location = await response.json();
-  return [location.city, location.region, location.country].filter(Boolean).join(", ") || DEFAULT_CITY;
-}
-
 type UiIcon = "search" | "location" | "sun" | "moon" | "humidity" | "wind" | "visibility" | "uv" | "sunrise" | "sunset" | "clock" | "close";
 
 function Icon({ name, size = 18 }: { name: UiIcon; size?: number }) {
@@ -150,9 +143,7 @@ export function WeatherApp() {
       if (!navigator.onLine && cached) {
         try { setWeather(JSON.parse(cached) as WeatherData); setLoading(false); setOffline(true); return; } catch { /* Ignore invalid cache. */ }
       }
-      loadApproxLocation()
-        .then((initialCity) => fetchWeather(initialCity))
-        .catch(() => fetchWeather(DEFAULT_CITY));
+      void fetchWeather(DEFAULT_CITY);
     }, 0);
 
     return () => window.clearTimeout(timer);

@@ -2,7 +2,7 @@
 
 import { FormEvent, PointerEvent, WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RawWeatherResponse, Unit, WeatherData } from "@/types/weather";
-import { dayLabel, hourLabel, normalizeWeather, speed, summary, temp } from "@/features/weather/utils/weather";
+import { formatDate, formatDay, formatPrecipitation, formatRelativeUpdate, formatTemperature, formatTime, formatTimezone, formatUV, formatVisibility, formatWind, normalizeWeather, summary } from "@/features/weather/utils/weather";
 import { WeatherIcon } from "./WeatherIcon";
 
 const DEFAULT_CITY = "Ahmedabad";
@@ -60,6 +60,9 @@ export function WeatherApp() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [locating, setLocating] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [hourlyEdges, setHourlyEdges] = useState({ left: false, right: false });
 
   const fetchWeather = useCallback(async (nextCity: string) => {
@@ -69,6 +72,8 @@ export function WeatherApp() {
       const data = await loadWeather(nextCity);
       setWeather(data);
       setQuery(nextCity);
+      window.localStorage.setItem("atmos-last-weather", JSON.stringify(data));
+      setStatus(`Weather updated for ${data.location.city}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load weather.");
     } finally {
@@ -78,6 +83,10 @@ export function WeatherApp() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      const cached = window.localStorage.getItem("atmos-last-weather");
+      if (!navigator.onLine && cached) {
+        try { setWeather(JSON.parse(cached) as WeatherData); setLoading(false); setOffline(true); return; } catch { /* Ignore invalid cache. */ }
+      }
       loadApproxLocation()
         .then((initialCity) => fetchWeather(initialCity))
         .catch(() => fetchWeather(DEFAULT_CITY));
@@ -85,6 +94,14 @@ export function WeatherApp() {
 
     return () => window.clearTimeout(timer);
   }, [fetchWeather]);
+
+  useEffect(() => {
+    const sync = () => setOffline(!navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => { window.removeEventListener("online", sync); window.removeEventListener("offline", sync); };
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -114,7 +131,11 @@ export function WeatherApp() {
   }, [weather, updateHourlyEdges]);
 
   const today = weather?.forecast[0];
-  const hours = today?.hours.slice(0, 24) ?? [];
+  const hours = useMemo(() => {
+    if (!weather) return [];
+    const current = weather.location.localtime.slice(0, 13);
+    return weather.forecast.flatMap((day) => day.hours).filter((hour) => hour.time.slice(0, 13) >= current).slice(0, 24);
+  }, [weather]);
   const tenDayForecast = weather?.forecast.slice(0, 10) ?? [];
   const forecastMin = tenDayForecast.length ? Math.min(...tenDayForecast.map((day) => day.min)) : 0;
   const forecastMax = tenDayForecast.length ? Math.max(...tenDayForecast.map((day) => day.max)) : 1;
@@ -160,20 +181,23 @@ export function WeatherApp() {
 
   const locate = () => {
     if (!navigator.geolocation) {
-      setError("Geolocation is not available in this browser.");
+      setError("Location isn't supported by this browser. Search for a city instead.");
       return;
     }
 
     setError("");
+    setLocating(true);
+    setStatus("Waiting for location permission.");
     navigator.geolocation.getCurrentPosition(
-      (position) => void fetchWeather(`${position.coords.latitude},${position.coords.longitude}`),
+      (position) => { setLocating(false); void fetchWeather(`${position.coords.latitude},${position.coords.longitude}`); },
       (positionError) => {
+        setLocating(false);
         switch (positionError.code) {
           case positionError.PERMISSION_DENIED:
-            setError("Location permission was denied. Enable location access in your browser settings to use your current location.");
+            setError("Location access is turned off. Search for a city instead.");
             break;
           case positionError.POSITION_UNAVAILABLE:
-            setError("Your current location could not be determined. Check your device's location services and try again.");
+            setError("Your location isn't available right now. Search for a city or try again.");
             break;
           case positionError.TIMEOUT:
             setError("Finding your current location took too long. Please try again.");
@@ -223,9 +247,10 @@ export function WeatherApp() {
   if (loading && !weather) {
     return (
       <main className="shell" aria-busy="true">
-        <div className="skeleton hero-skeleton" />
-        <div className="skeleton strip-skeleton" />
-        <div className="skeleton rows-skeleton" />
+        <span className="sr-only" role="status">Loading weather</span>
+        <div className="hero-skeleton skeleton"><i/><i/><i/><i/></div>
+        <div className="strip-skeleton skeleton"><i/><i/><i/><i/><i/><i/></div>
+        <div className="skeleton-grid"><div className="rows-skeleton skeleton"/><div className="cards-skeleton">{[0,1,2,3].map((item) => <i className="skeleton" key={item}/>)}</div></div>
       </main>
     );
   }
@@ -234,8 +259,8 @@ export function WeatherApp() {
     return (
       <main className="center-state">
         <h1>Atmos</h1>
-        <p>{error || "Weather data is unavailable."}</p>
-        <button className="button primary" onClick={() => void fetchWeather(DEFAULT_CITY)}>Try again</button>
+        <p>{error || (offline ? "You're offline and no saved weather is available." : "Forecast data isn't available for this location right now.")}</p>
+        {!offline && <button className="button primary" onClick={() => void fetchWeather(DEFAULT_CITY)}>Try again</button>}
       </main>
     );
   }
@@ -249,17 +274,18 @@ export function WeatherApp() {
             <span className="brand-name">Atmos</span>
           </a>
           <form className="search" onSubmit={onSubmit}>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search city" placeholder="Search a city" />
-            <button type="submit" aria-label="Search weather" title="Search weather"><Icon name="search" /><span>Search</span></button>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search weather by city" placeholder="Search a city" autoComplete="off" />
+            <button type="submit" disabled={loading || !query.trim()} aria-label="Search weather" title="Search weather"><Icon name="search" /><span>{loading ? "Loading…" : "Search"}</span></button>
           </form>
           <div className="header-actions">
-            <button className="icon-button location" onClick={locate} type="button" aria-label="Use current location" title="Use current location">
+            <button className="icon-button location" onClick={locate} disabled={locating} type="button" aria-label="Use current location" title="Use current location">
               <Icon name="location" />
-              <span>Use location</span>
+              <span>{locating ? "Locating…" : "Use location"}</span>
             </button>
             <div className="segmented" role="group" aria-label="Temperature unit">
-              <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-label="Use Celsius" aria-pressed={unit === "c"} title="Use Celsius">°C</button>
-              <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"} title="Use Fahrenheit">°F</button>
+              <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-label="Use Celsius" aria-pressed={unit === "c"}>°C</button>
+              <span aria-hidden="true">|</span>
+              <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"}>°F</button>
             </div>
             <button className="icon-button theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
               <Icon name={theme === "dark" ? "sun" : "moon"} />
@@ -267,6 +293,9 @@ export function WeatherApp() {
           </div>
         </div>
       </header>
+
+      <div className="sr-only" aria-live="polite">{status}</div>
+      {offline && <div className="offline-notice" role="status">Offline · showing last updated weather</div>}
 
       {error && (
         <div className="notice" role="status">
@@ -278,28 +307,28 @@ export function WeatherApp() {
         </div>
       )}
 
-      <main className="shell" id="top" aria-busy={loading}>
+      <main className={`shell weather-content ${loading ? "is-refreshing" : ""}`} id="top" aria-busy={loading}>
         <section className={`hero ${weather.current.condition.isDay ? "" : "night"}`}>
           <div className="hero-copy">
             <div className="hero-top">
               <WeatherIcon condition={weather.current.condition} size={78} />
               <div>
-                <p className="eyebrow">{weather.location.city}, {weather.location.country}</p>
+                <p className="eyebrow">{weather.location.city}{weather.location.region ? `, ${weather.location.region}` : `, ${weather.location.country}`}</p>
                 <p className="local-date">{localDate}</p>
               </div>
             </div>
             <div className="current">
-              <span className="temperature">{temp(weather.current.temperature, unit)}</span>
+              <span className="temperature">{formatTemperature(weather.current.temperature, unit)}</span>
               <div>
                 <WeatherIcon condition={weather.current.condition} />
                 <h1>{weather.current.condition.text}</h1>
               </div>
             </div>
-            <p className="summary">{summary(weather)}</p>
+            <p className="summary">{summary(weather, unit)}</p>
             <p className="hero-meta">
-              High {temp(today.max, unit)} <i /> Low {temp(today.min, unit)} <i /> Wind {speed(weather.current.windSpeed, unit)}
+              Feels like {formatTemperature(weather.current.feelsLike, unit)} <i /> H {formatTemperature(today.max, unit)} <i /> L {formatTemperature(today.min, unit)} <i /> Wind {formatWind(weather.current.windSpeed, unit)}
             </p>
-            <p className="updated"><Icon name="clock" size={14} /> Updated {weather.current.updatedAt}</p>
+            <p className="updated" title={`Exact update: ${weather.current.updatedAt}`}><Icon name="clock" size={14} /> Updated {formatRelativeUpdate(weather.current.updatedAt, weather.location.localtime)}</p>
           </div>
           <div className="hero-orbit" aria-hidden="true"><span /><span /></div>
         </section>
@@ -310,16 +339,16 @@ export function WeatherApp() {
               <span className="eyebrow">Hourly</span>
               <h2>Next 24 hours</h2>
             </div>
-            <span className="timezone"><Icon name="clock" size={14} />{weather.location.timezone}</span>
+            <span className="timezone" title={weather.location.timezone}><Icon name="clock" size={14} />Local time · {formatTimezone(weather.location.timezone)}</span>
           </div>
           <div className={`hour-scroll ${hourlyEdges.left ? "can-scroll-left" : ""} ${hourlyEdges.right ? "can-scroll-right" : ""}`}>
             <div className="hour-track" ref={hourlyTrackRef} onScroll={updateHourlyEdges} onWheel={scrollHourly} onPointerDown={startHourlyDrag} onPointerMove={moveHourlyDrag} onPointerUp={stopHourlyDrag} onPointerCancel={stopHourlyDrag} tabIndex={0} aria-label="Scrollable 24-hour forecast">
               {hours.map((hour, index) => (
                 <div className={`hour ${index === 0 ? "now" : ""}`} key={hour.time}>
-                  <span>{index === 0 ? "Now" : hourLabel(hour.time)}</span>
+                  <span>{index === 0 ? "Now" : formatTime(hour.time)}</span>
                   <WeatherIcon condition={hour.condition} size={38} />
-                  <strong>{temp(hour.temperature, unit)}</strong>
-                  <small>{speed(hour.windSpeed, unit)}</small>
+                  <strong>{formatTemperature(hour.temperature, unit)}</strong>
+                  <small className={hour.precipitationChance === 0 ? "quiet" : ""}>{formatPrecipitation(hour.precipitationChance)} <span className="rain-label">rain</span></small>
                 </div>
               ))}
             </div>
@@ -340,16 +369,16 @@ export function WeatherApp() {
               return (
                 <div className={`day-row ${index === 0 ? "today" : ""}`} key={day.date}>
                   <div className="day-label">
-                    <strong>{dayLabel(day.date, index === 0)}</strong>
-                    <span>{new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${day.date}T12:00:00Z`))}</span>
+                    <strong>{formatDay(day.date, index === 0)}</strong>
+                    <span>{formatDate(day.date)}</span>
                   </div>
                   <div className="condition">
                     <WeatherIcon condition={day.condition} size={34} />
                     <span>{day.condition.text}</span>
                   </div>
-                  <span className="low">{temp(day.min, unit)}</span>
+                  <span className="low">{formatTemperature(day.min, unit)}</span>
                   <span className="range"><i style={{ left: `${left}%`, width: `${width}%` }} /></span>
-                  <strong>{temp(day.max, unit)}</strong>
+                  <strong>{formatTemperature(day.max, unit)}</strong>
                 </div>
               );
             })}
@@ -357,6 +386,12 @@ export function WeatherApp() {
 
           <aside>
             <dl className="details detail-grid" aria-label="Current weather conditions">
+                <div className="detail-card feels-card">
+                  <dt><span className="detail-icon"><Icon name="sun" /></span>Feels like</dt>
+                  <dd>{formatTemperature(weather.current.feelsLike, unit)}</dd>
+                  <p>{weather.current.feelsLike > weather.current.temperature + 2 ? "Feels warmer" : weather.current.feelsLike < weather.current.temperature - 2 ? "Feels cooler" : "Close to actual"}</p>
+                  <span className="detail-card-mark" aria-hidden="true"><Icon name="sun" size={36} /></span>
+                </div>
                 <div className="detail-card humidity-card">
                   <dt><span className="detail-icon"><Icon name="humidity" /></span>Humidity</dt>
                   <dd>{weather.current.humidity}<span className="detail-unit">%</span></dd>
@@ -365,23 +400,18 @@ export function WeatherApp() {
                 </div>
                 <div className="detail-card wind-card">
                   <dt><span className="detail-icon"><Icon name="wind" /></span>Wind</dt>
-                  <dd>{Math.round(unit === "c" ? weather.current.windSpeed : weather.current.windSpeed * 0.621371)}<span className="detail-unit"> {unit === "c" ? "km/h" : "mph"}</span></dd>
+                  <dd>{formatWind(weather.current.windSpeed, unit).split(" ")[0]}<span className="detail-unit"> {formatWind(weather.current.windSpeed, unit).split(" ").slice(1).join(" ")}</span></dd>
                   <p>{weather.current.windSpeed < 12 ? "Light breeze" : weather.current.windSpeed < 30 ? "Moderate breeze" : "Strong winds"}</p>
                   <span className="detail-card-mark" aria-hidden="true"><Icon name="wind" size={36} /></span>
                 </div>
-                <div className="detail-card visibility-card">
-                  <dt><span className="detail-icon"><Icon name="visibility" /></span>Visibility</dt>
-                  <dd>{weather.current.visibility}<span className="detail-unit"> km</span></dd>
-                  <p>{weather.current.visibility >= 10 ? "Clear view" : weather.current.visibility >= 5 ? "Fair visibility" : "Limited visibility"}</p>
-                  <span className="detail-card-mark" aria-hidden="true"><Icon name="visibility" size={36} /></span>
-                </div>
                 <div className="detail-card uv-card">
                   <dt><span className="detail-icon"><Icon name="uv" /></span>UV index</dt>
-                  <dd>{weather.current.uv}</dd>
+                  <dd>{formatUV(weather.current.uv)}</dd>
                   <p>{weather.current.uv < 3 ? "Low exposure" : weather.current.uv < 6 ? "Moderate exposure" : weather.current.uv < 8 ? "High exposure" : "Very high exposure"}</p>
                   <span className="detail-meter" aria-hidden="true"><i style={{ width: `${Math.min((weather.current.uv / 11) * 100, 100)}%` }} /></span>
                 </div>
             </dl>
+            {weather.current.visibility < 5 && <p className="visibility-note"><Icon name="visibility" /> Visibility is limited to {formatVisibility(weather.current.visibility, unit)}.</p>}
 
             <section className="section sun">
               <div className="section-heading">
@@ -420,8 +450,8 @@ export function WeatherApp() {
       </main>
 
       <footer>
-        <span>Atmos weather dashboard</span>
-        <span>Weather data from WeatherAPI.com</span>
+        <span>© {new Date().getFullYear()} Atmos</span>
+        <span>Weather data from <a href="https://www.weatherapi.com/" rel="noopener noreferrer">WeatherAPI.com</a></span>
       </footer>
     </>
   );

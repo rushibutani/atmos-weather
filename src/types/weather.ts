@@ -12,6 +12,7 @@ export interface HourWeather {
   temperature: number;
   humidity: number;
   windSpeed: number;
+  precipitationChance: number;
   condition: Condition;
 }
 
@@ -37,6 +38,7 @@ export interface WeatherData {
   };
   current: {
     temperature: number;
+    feelsLike: number;
     humidity: number;
     windSpeed: number;
     uv: number;
@@ -70,6 +72,7 @@ export interface RawWeatherResponse {
     uv: number;
     vis_km: number;
     last_updated: string;
+    feelslike_c: number;
     is_day: number;
     condition: {
       text: string;
@@ -100,6 +103,8 @@ export interface RawWeatherResponse {
         temp_c: number;
         humidity: number;
         wind_kph: number;
+        chance_of_rain: number;
+        chance_of_snow: number;
         is_day: number;
         condition: {
           text: string;

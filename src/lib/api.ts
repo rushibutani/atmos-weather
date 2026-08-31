@@ -9,4 +9,4 @@ export function validate(request: NextRequest, maxDays: number, limit: number) {
   if (!city || city.length > 100 || !Number.isInteger(days) || days < 1 || days > maxDays) return { error: NextResponse.json({ error: "Please provide a valid city and day range." }, { status: 400 }) };
   return { city, days };
 }
-export function upstreamError(status: number) { const mapped = status === 400 ? 404 : status === 429 ? 429 : 502; const message = mapped === 404 ? "We couldn't find that city." : mapped === 429 ? "Weather service rate limit reached." : "The weather service is temporarily unavailable."; return NextResponse.json({ error: message }, { status: mapped }); }
+export function upstreamError(status: number) { const mapped = status === 400 ? 404 : status === 429 ? 429 : 502; const message = mapped === 404 ? "We couldn't find that location. Check the spelling and try again." : mapped === 429 ? "Too many requests. Try again shortly." : "Weather data is temporarily unavailable."; return NextResponse.json({ error: message }, { status: mapped }); }

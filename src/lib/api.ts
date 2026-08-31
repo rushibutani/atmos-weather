@@ -4,7 +4,7 @@ import { rateLimit } from "./rate-limit";
 export function validate(request: NextRequest, maxDays: number, limit: number) {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0] ?? "local";
   if (!rateLimit(`${request.nextUrl.pathname}:${ip}`, limit)) return { error: NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 }) };
-  const city = request.nextUrl.searchParams.get("city")?.trim();
+  const city = request.nextUrl.searchParams.get("city")?.trim().replace(/\s+/g, " ");
   const days = Number(request.nextUrl.searchParams.get("days") ?? 7);
   if (!city || city.length > 100 || !Number.isInteger(days) || days < 1 || days > maxDays) return { error: NextResponse.json({ error: "Please provide a valid city and day range." }, { status: 400 }) };
   return { city, days };

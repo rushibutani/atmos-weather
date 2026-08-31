@@ -6,6 +6,50 @@ import { formatDate, formatDay, formatPrecipitation, formatRelativeUpdate, forma
 import { WeatherIcon } from "./WeatherIcon";
 
 const DEFAULT_CITY = "Ahmedabad";
+const WEATHER_CACHE_KEY = "atmos-weather-cache-v1";
+const WEATHER_CACHE_TTL = 10 * 60_000;
+const MAX_CACHED_LOCATIONS = 5;
+
+type WeatherCacheEntry = { data: WeatherData; savedAt: number };
+type WeatherCache = Record<string, WeatherCacheEntry>;
+
+const memoryCache = new Map<string, WeatherCacheEntry>();
+const pendingWeather = new Map<string, Promise<WeatherData>>();
+
+const weatherKey = (city: string, days: number) => `${city.trim().replace(/\s+/g, " ").toLocaleLowerCase()}|${days}`;
+
+function readWeatherCache(key: string) {
+  const memoryEntry = memoryCache.get(key);
+  if (memoryEntry && Date.now() - memoryEntry.savedAt < WEATHER_CACHE_TTL) return memoryEntry.data;
+  if (typeof window === "undefined") return null;
+
+  try {
+    const cache = JSON.parse(window.localStorage.getItem(WEATHER_CACHE_KEY) ?? "{}") as WeatherCache;
+    const entry = cache[key];
+    if (entry && Date.now() - entry.savedAt < WEATHER_CACHE_TTL) {
+      memoryCache.set(key, entry);
+      return entry.data;
+    }
+  } catch { /* Ignore unavailable or invalid browser storage. */ }
+  return null;
+}
+
+function writeWeatherCache(key: string, data: WeatherData) {
+  const entry = { data, savedAt: Date.now() };
+  memoryCache.set(key, entry);
+  if (typeof window === "undefined") return;
+
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(WEATHER_CACHE_KEY) ?? "{}") as WeatherCache;
+    const cache = Object.fromEntries(
+      Object.entries({ ...stored, [key]: entry })
+        .filter(([, value]) => Date.now() - value.savedAt < WEATHER_CACHE_TTL)
+        .sort(([, a], [, b]) => b.savedAt - a.savedAt)
+        .slice(0, MAX_CACHED_LOCATIONS),
+    );
+    window.localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(cache));
+  } catch { /* Weather still works when storage is blocked or full. */ }
+}
 
 const savedUnit = (): Unit => {
   if (typeof window === "undefined") return "c";
@@ -18,10 +62,25 @@ const savedTheme = () => {
 };
 
 async function loadWeather(city: string, days = 10) {
-  const response = await fetch(`/api/weather?city=${encodeURIComponent(city)}&days=${days}`);
-  const json = await response.json();
-  if (!response.ok) throw new Error(json.error ?? "Unable to load weather.");
-  return normalizeWeather(json as RawWeatherResponse);
+  const key = weatherKey(city, days);
+  const cached = readWeatherCache(key);
+  if (cached) return cached;
+
+  const pending = pendingWeather.get(key);
+  if (pending) return pending;
+
+  const request = fetch(`/api/weather?city=${encodeURIComponent(city.trim())}&days=${days}`)
+    .then(async (response) => {
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error ?? "Unable to load weather.");
+      const data = normalizeWeather(json as RawWeatherResponse);
+      writeWeatherCache(key, data);
+      return data;
+    })
+    .finally(() => pendingWeather.delete(key));
+
+  pendingWeather.set(key, request);
+  return request;
 }
 
 async function loadApproxLocation() {
@@ -54,6 +113,7 @@ function Icon({ name, size = 18 }: { name: UiIcon; size?: number }) {
 export function WeatherApp() {
   const hourlyTrackRef = useRef<HTMLDivElement>(null);
   const hourlyDragRef = useRef<{ x: number; scrollLeft: number } | null>(null);
+  const requestSequenceRef = useRef(0);
   const [query, setQuery] = useState(DEFAULT_CITY);
   const [unit, setUnit] = useState<Unit>(savedUnit);
   const [theme, setTheme] = useState(savedTheme);
@@ -66,18 +126,21 @@ export function WeatherApp() {
   const [hourlyEdges, setHourlyEdges] = useState({ left: false, right: false });
 
   const fetchWeather = useCallback(async (nextCity: string) => {
+    const requestSequence = ++requestSequenceRef.current;
     setLoading(true);
     setError("");
     try {
       const data = await loadWeather(nextCity);
+      if (requestSequence !== requestSequenceRef.current) return;
       setWeather(data);
       setQuery(nextCity);
       window.localStorage.setItem("atmos-last-weather", JSON.stringify(data));
       setStatus(`Weather updated for ${data.location.city}.`);
     } catch (err) {
+      if (requestSequence !== requestSequenceRef.current) return;
       setError(err instanceof Error ? err.message : "Unable to load weather.");
     } finally {
-      setLoading(false);
+      if (requestSequence === requestSequenceRef.current) setLoading(false);
     }
   }, []);
 

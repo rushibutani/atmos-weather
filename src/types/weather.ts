@@ -44,7 +44,10 @@ export interface WeatherData {
     uv: number;
     visibility: number;
     condition: Condition;
+    /** The provider's local wall-clock time of the reading, e.g. "2026-11-27 21:30". */
     updatedAt: string;
+    /** The same moment as a Unix time in ms. Missing only in weather saved by older builds. */
+    updatedAtMs?: number;
   };
   forecast: DayWeather[];
   alerts: WeatherAlert[];
@@ -85,6 +88,7 @@ export interface RawWeatherResponse {
     uv: number;
     vis_km: number;
     last_updated: string;
+    last_updated_epoch?: number;
     feelslike_c: number;
     is_day: number;
     condition: {

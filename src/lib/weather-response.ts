@@ -71,6 +71,7 @@ export function isRawWeatherResponse(value: unknown): value is RawWeatherRespons
     && isNumber(value.current.vis_km)
     && isNumber(value.current.is_day)
     && isString(value.current.last_updated)
+    && (value.current.last_updated_epoch === undefined || isNumber(value.current.last_updated_epoch))
     && isCondition(value.current.condition)
     && Array.isArray(value.forecast.forecastday)
     && value.forecast.forecastday.length > 0

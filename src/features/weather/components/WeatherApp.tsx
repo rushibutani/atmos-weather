@@ -136,6 +136,18 @@ export function WeatherApp() {
   const [offline, setOffline] = useState(false);
   const [hourlyEdges, setHourlyEdges] = useState({ left: false, right: false });
   const [recentCities, setRecentCities] = useState<string[]>([]);
+  // The viewer's clock, so "Updated … ago" keeps counting. Weather loads only in the
+  // browser, so this never has to match a server render.
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const timer = window.setInterval(tick, 30_000);
+    // Background tabs throttle timers; catch up as soon as the tab is visible again.
+    const onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
 
   const fetchWeather = useCallback(async (nextCity: string, showResolvedCity = false, rememberSearch = true) => {
     const requestSequence = ++requestSequenceRef.current;
@@ -267,9 +279,9 @@ export function WeatherApp() {
     const current = weather.location.localtime.slice(0, 13);
     return weather.forecast.flatMap((day) => day.hours).filter((hour) => hour.time.slice(0, 13) >= current).slice(0, 24);
   }, [weather]);
-  const tenDayForecast = weather?.forecast.slice(0, 10) ?? [];
-  const forecastMin = tenDayForecast.length ? Math.min(...tenDayForecast.map((day) => day.min)) : 0;
-  const forecastMax = tenDayForecast.length ? Math.max(...tenDayForecast.map((day) => day.max)) : 1;
+  const dailyForecast = weather?.forecast.slice(0, 10) ?? [];
+  const forecastMin = dailyForecast.length ? Math.min(...dailyForecast.map((day) => day.min)) : 0;
+  const forecastMax = dailyForecast.length ? Math.max(...dailyForecast.map((day) => day.max)) : 1;
   const forecastRange = Math.max(forecastMax - forecastMin, 1);
 
   const localDate = useMemo(() => {
@@ -399,8 +411,8 @@ export function WeatherApp() {
   const appHeader = (
     <header>
       <div className="header-inner">
-        <a className="brand" href="#top" aria-label="Atmos home">
-          <span className="brand-mark">A</span>
+        <a className="brand" href="#top">
+          <span className="brand-mark" aria-hidden="true">A</span>
           <span className="brand-name">Atmos</span>
         </a>
         <form className="search" onSubmit={onSubmit} role="search">
@@ -417,9 +429,9 @@ export function WeatherApp() {
             <span>{locating ? "Locating…" : "Use location"}</span>
           </button>
           <div className="segmented" role="group" aria-label="Temperature unit">
-            <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-label="Use Celsius" aria-pressed={unit === "c"} title="Use Celsius">°C</button>
+            <button className={unit === "c" ? "active" : ""} onClick={() => setUnit("c")} type="button" aria-pressed={unit === "c"} title="Celsius">°C</button>
             <span aria-hidden="true">|</span>
-            <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-label="Use Fahrenheit" aria-pressed={unit === "f"} title="Use Fahrenheit">°F</button>
+            <button className={unit === "f" ? "active" : ""} onClick={() => setUnit("f")} type="button" aria-pressed={unit === "f"} title="Fahrenheit">°F</button>
           </div>
           <button className="icon-button theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} aria-pressed={theme === "dark"} title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
             <span className="theme-icon" key={theme}><Icon name={theme === "dark" ? "sun" : "moon"} /></span>
@@ -481,7 +493,7 @@ export function WeatherApp() {
                 <p className="local-date">{localDate}</p>
                 <p className={`updated ${offline ? "is-offline" : ""}`} role={offline ? "status" : undefined} title={`Exact update: ${weather.current.updatedAt}`}>
                   <Icon name="clock" size={14} />
-                  {offline ? `Offline · saved weather updated ${formatRelativeUpdate(weather.current.updatedAt, weather.location.localtime)}` : loading ? "Refreshing forecast…" : `Updated ${formatRelativeUpdate(weather.current.updatedAt, weather.location.localtime)}`}
+                  {offline ? `Offline · saved weather updated ${formatRelativeUpdate(weather.current, weather.location, now)}` : loading ? "Refreshing forecast…" : `Updated ${formatRelativeUpdate(weather.current, weather.location, now)}`}
                 </p>
               </div>
             </div>
@@ -553,10 +565,10 @@ export function WeatherApp() {
             <div className="section-heading">
               <div>
                 <span className="eyebrow">Daily</span>
-                <h2>10-day forecast</h2>
+                <h2>{dailyForecast.length > 1 ? `${dailyForecast.length}-day forecast` : "Today’s forecast"}</h2>
               </div>
             </div>
-            {tenDayForecast.map((day, index) => {
+            {dailyForecast.map((day, index) => {
               const left = ((day.min - forecastMin) / forecastRange) * 100;
               const width = ((day.max - day.min) / forecastRange) * 100;
               return (

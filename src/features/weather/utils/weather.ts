@@ -27,6 +27,7 @@ export function normalizeWeather(raw: RawWeatherResponse): WeatherData {
       visibility: raw.current.vis_km,
       condition: condition(raw.current.condition, Boolean(raw.current.is_day)),
       updatedAt: raw.current.last_updated,
+      updatedAtMs: raw.current.last_updated_epoch === undefined ? undefined : raw.current.last_updated_epoch * 1000,
     },
     forecast: raw.forecast.forecastday.map((day) => ({
       date: day.date,
@@ -91,13 +92,29 @@ export const formatTimezone = (timezone: string) => {
   return abbreviations[timezone] ?? timezone.split("/").at(-1)?.replaceAll("_", " ") ?? "local";
 };
 
-export const formatRelativeUpdate = (updatedAt: string, localtime: string) => {
-  const updated = new Date(updatedAt.replace(" ", "T")).getTime();
-  const local = new Date(localtime.replace(" ", "T")).getTime();
-  const minutes = Math.max(0, Math.round((local - updated) / 60_000));
+/**
+ * How long ago the reading was taken, measured against `now` (the viewer's clock), so a
+ * forecast served from a cache keeps ageing instead of repeating the age it had when cached.
+ * Past an hour it gives the time of the reading on the location's own clock.
+ */
+export const formatRelativeUpdate = (
+  current: Pick<WeatherData["current"], "updatedAt" | "updatedAtMs">,
+  location: Pick<WeatherData["location"], "localtime" | "timezone">,
+  now: number,
+) => {
+  const wallClock = (value: string) => new Date(`${value.replace(" ", "T")}Z`).getTime();
+  // Weather saved before the epoch was kept has only wall-clock times; their difference is
+  // still the age at the moment it was fetched, which is the best that data can say.
+  const elapsed = current.updatedAtMs === undefined
+    ? wallClock(location.localtime) - wallClock(current.updatedAt)
+    : now - current.updatedAtMs;
+  const minutes = Math.max(0, Math.floor(elapsed / 60_000));
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;
-  return `at ${new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date(updatedAt.replace(" ", "T")))}`;
+  const time = current.updatedAtMs === undefined
+    ? new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(wallClock(current.updatedAt))
+    : new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", timeZone: location.timezone }).format(current.updatedAtMs);
+  return `at ${time}`;
 };
 
 export function summary(data: WeatherData, unit: Unit) {
